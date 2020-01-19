@@ -45,7 +45,6 @@ Resources:
      Properties:
        VpcId: !Ref VPC
        CidrBlock: 10.0.2.0/24
-       
        AvailabilityZone: !Select [ 0, !GetAZs ]
        Tags:
        - Key: Name
@@ -193,7 +192,7 @@ Resources:
         - !Ref PublicSubnetA
         - !Ref PublicSubnetB
       SecurityGroups: [!Ref 'PublicLBSG']
-  TargetGroupPublic:
+  TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       HealthCheckIntervalSeconds: 6
@@ -207,51 +206,15 @@ Resources:
       Protocol: HTTP
       UnhealthyThresholdCount: 2
       VpcId: !Ref 'VPC'
-  TargetGroupPrivate:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 5
-      HealthyThresholdCount: 2
-      TargetType: ip
-      Name: webapprivate
-      Port: 3000
-      Protocol: HTTP
-      UnhealthyThresholdCount: 2
-      VpcId: !Ref 'VPC'
   PublicLBlistner:
     Type: AWS::ElasticLoadBalancingV2::Listener
     DependsOn:
       - PublicLB
     Properties:
       DefaultActions:
-        - TargetGroupArn: !Ref TargetGroupPublic
+        - TargetGroupArn: !Ref TargetGroup
           Type: forward
       LoadBalancerArn: !Ref PublicLB
-      Port: 80
-      Protocol: HTTP
-  PrivateLB:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Scheme: internal
-      LoadBalancerAttributes:
-      - Key: idle_timeout.timeout_seconds
-        Value: '30'
-      Subnets:
-        - !Ref PrivateSubnetA
-        - !Ref PrivateSubnetB
-      SecurityGroups: [!Ref 'PrivateLBSG']
-  PrivateLBlistner:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    DependsOn: 
-      - PrivateLB
-    Properties:
-      DefaultActions:
-        - TargetGroupArn: !Ref 'TargetGroupPrivate'
-          Type: forward
-      LoadBalancerArn: !Ref PrivateLB
       Port: 80
       Protocol: HTTP
   ECSRole:
@@ -343,13 +306,12 @@ Resources:
       LoadBalancers:
         - ContainerName: webapp
           ContainerPort: 3000
-          TargetGroupArn: !Ref TargetGroupPrivate
-
+          TargetGroupArn: !Ref TargetGroup
   LBRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
-        - TargetGroupArn: !Ref TargetGroupPublic
+        - TargetGroupArn: !Ref TargetGroup
           Type: forward
       Conditions:
         - Field: path-pattern
@@ -363,8 +325,3 @@ Outputs:
     Value: !Join ['', ['http://', !GetAtt 'PublicLB.DNSName']]
     Export:
       Name: !Join [ ':', [ !Ref 'AWS::StackName', 'DnsEndpoint' ] ]
-  PrivateEndpoint:
-    Description: Private Endpoint
-    Value: !Join ['', ['http://', !GetAtt 'PrivateLB.DNSName']]
-    Export:
-      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PrivateEndpoint' ] ]
