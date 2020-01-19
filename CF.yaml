@@ -1,0 +1,370 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  #Creating VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value:  !Join ['', [!Ref "AWS::StackName", "-VPC" ]]
+ #internetgateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC 
+      InternetGatewayId: !Ref InternetGateway
+  #subnet creation
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-A
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-B
+  PrivateSubnetA:
+     Type: AWS::EC2::Subnet
+     Properties:
+       VpcId: !Ref VPC
+       CidrBlock: 10.0.2.0/24
+       
+       AvailabilityZone: !Select [ 0, !GetAZs ]
+       Tags:
+       - Key: Name
+         Value: !Sub ${AWS::StackName}-Private-A
+  PrivateSubnetB:
+     Type: AWS::EC2::Subnet
+     Properties:
+       VpcId: !Ref VPC
+       CidrBlock: 10.0.3.0/24
+       AvailabilityZone: !Select [ 1, !GetAZs ]
+       Tags:
+       - Key: Name
+         Value: !Sub ${AWS::StackName}-Private-B
+
+  #Publicroutetable Creation 
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Public
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+  #Adding Routetabled to relevant subnets
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+  
+  NATGatewayAttachmentA:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+  NATGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayAttachmentA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+  NATGatewayAttachmentB:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachGateway
+    Properties:
+      Domain: vpc
+  NATGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayAttachmentB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  PrivateRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayA
+  PrivateRouteTableAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      SubnetId: !Ref PrivateSubnetA
+  PrivateRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGatewayB
+  PrivateRouteTableBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      SubnetId: !Ref PrivateSubnetB
+  
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to Containers
+      VpcId: !Ref VPC
+  PublicLBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ebabled for public Lb
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+          - CidrIp: 0.0.0.0/0
+            IpProtocol: -1
+  PrivateLBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access for privatelb
+      VpcId: !Ref VPC
+  EcsSecurityGroupPublicALB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:  !Ref EcsSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref 'PublicLBSG'
+  EcsSecurityGroupPrivateALB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:  !Ref EcsSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref 'PrivateLBSG'
+  EcsSecurityGroupSelf:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:  !Ref EcsSecurityGroup
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref EcsSecurityGroup
+  PrivateLBInECS:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref 'PrivateLBSG'
+      IpProtocol: -1
+      SourceSecurityGroupId: !Ref EcsSecurityGroup
+  PublicLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: 30
+      Subnets:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+      SecurityGroups: [!Ref 'PublicLBSG']
+  TargetGroupPublic:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Name: webappublic
+      Port: 3000
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref 'VPC'
+  TargetGroupPrivate:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 6
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      TargetType: ip
+      Name: webapprivate
+      Port: 3000
+      Protocol: HTTP
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref 'VPC'
+  PublicLBlistner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn:
+      - PublicLB
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroupPublic
+          Type: forward
+      LoadBalancerArn: !Ref PublicLB
+      Port: 80
+      Protocol: HTTP
+  PrivateLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internal
+      LoadBalancerAttributes:
+      - Key: idle_timeout.timeout_seconds
+        Value: '30'
+      Subnets:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroups: [!Ref 'PrivateLBSG']
+  PrivateLBlistner:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn: 
+      - PrivateLB
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref 'TargetGroupPrivate'
+          Type: forward
+      LoadBalancerArn: !Ref PrivateLB
+      Port: 80
+      Protocol: HTTP
+  ECSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: ecs-service
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - ec2:AttachNetworkInterface
+                - ec2:CreateNetworkInterface
+                - ec2:CreateNetworkInterfacePermission
+                - ec2:DeleteNetworkInterface
+                - ec2:DeleteNetworkInterfacePermission
+                - ec2:Describe*
+                - ec2:DetachNetworkInterface
+                - elasticloadbalancing:DeregisterInstancesFromLoadBalancer
+                - elasticloadbalancing:DeregisterTargets
+                - elasticloadbalancing:Describe*
+                - elasticloadbalancing:RegisterInstancesWithLoadBalancer
+                - elasticloadbalancing:RegisterTargets
+              Resource: '*'
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                - ecr:GetAuthorizationToken
+                - ecr:BatchCheckLayerAvailability
+                - ecr:GetDownloadUrlForLayer
+                - ecr:BatchGetImage
+              Resource: '*'
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: webapp
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !Ref ExecutionRole
+      TaskRoleArn:  !Ref ExecutionRole
+      ContainerDefinitions:
+        - Name: webapp
+          Cpu: 256
+          Memory: 512
+          Image: '862996217015.dkr.ecr.us-east-1.amazonaws.com/webapp:latest'
+          PortMappings:
+            - ContainerPort: 3000
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: LBRule
+    Properties:
+      ServiceName: webapp
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 50
+      DesiredCount: 1
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups: [!Ref 'EcsSecurityGroup']
+          Subnets:
+            - !Ref PrivateSubnetA
+            - !Ref PrivateSubnetB
+      TaskDefinition: !Ref TaskDefinition
+      LoadBalancers:
+        - ContainerName: webapp
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TargetGroupPrivate
+
+  LBRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - TargetGroupArn: !Ref TargetGroupPublic
+          Type: forward
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - '*'
+      ListenerArn: !Ref PublicLBlistner
+      Priority: 1
+Outputs:
+  DnsEndpoint:
+    Description: Public dns Endpoint
+    Value: !Join ['', ['http://', !GetAtt 'PublicLB.DNSName']]
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'DnsEndpoint' ] ]
+  PrivateEndpoint:
+    Description: Private Endpoint
+    Value: !Join ['', ['http://', !GetAtt 'PrivateLB.DNSName']]
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'PrivateEndpoint' ] ]
