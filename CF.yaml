@@ -152,33 +152,16 @@ Resources:
       SecurityGroupIngress:
           - CidrIp: 0.0.0.0/0
             IpProtocol: -1
-  PrivateLBSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access for privatelb
-      VpcId: !Ref VPC
   EcsSecurityGroupPublicALB:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       GroupId:  !Ref EcsSecurityGroup
       IpProtocol: -1
       SourceSecurityGroupId: !Ref 'PublicLBSG'
-  EcsSecurityGroupPrivateALB:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId:  !Ref EcsSecurityGroup
-      IpProtocol: -1
-      SourceSecurityGroupId: !Ref 'PrivateLBSG'
   EcsSecurityGroupSelf:
     Type: AWS::EC2::SecurityGroupIngress
     Properties:
       GroupId:  !Ref EcsSecurityGroup
-      IpProtocol: -1
-      SourceSecurityGroupId: !Ref EcsSecurityGroup
-  PrivateLBInECS:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref 'PrivateLBSG'
       IpProtocol: -1
       SourceSecurityGroupId: !Ref EcsSecurityGroup
   PublicLB:
